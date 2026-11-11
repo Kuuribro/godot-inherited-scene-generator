@@ -6,8 +6,11 @@ extends EditorContextMenuPlugin
 # Default material to use if set. Leave blank for no material applied by default.
 const DEFAULT_MATERIAL_PATH := ""
 
-# base path for new inherited scenes. To be modified based on workflow request
+# Base path for new inherited scenes. To be modified based on workflow request
 const INHERITED_SCENES_ROOT := "res://assets/inherited_scenes"
+
+# Remembers the material the user picked last time for this session.
+static var _last_used_material_path: String = ""
 
 func _popup_menu(paths: PackedStringArray) -> void:
 	add_context_menu_item("Generate Inherited Scene(s)", _on_generate)
@@ -26,6 +29,7 @@ func _on_generate(paths: PackedStringArray) -> void:
 
 	# Build the dialog
 	var dialog := ConfirmationDialog.new()
+	# dialog.exclusive = false
 	dialog.title = "Generate Inherited Scenes"
 	dialog.ok_button_text = "Generate"
 	dialog.cancel_button_text = "Cancel"
@@ -95,16 +99,42 @@ func _on_generate(paths: PackedStringArray) -> void:
 	mat_label.text = "Material Override: "
 	mat_hbox.add_child(mat_label)
 	
-	var mat_picker := EditorResourcePicker.new()
-	mat_picker.base_type = "Material"
-	mat_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mat_hbox.add_child(mat_picker)
+	var mat_line := LineEdit.new()
+	mat_line.placeholder_text = "None"
+	mat_line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mat_hbox.add_child(mat_line)
 	
-	# Pre-fill material if the constant is set
-	if DEFAULT_MATERIAL_PATH != "":
-		var default_mat = load(DEFAULT_MATERIAL_PATH) as Material
-		if default_mat:
-			mat_picker.edited_resource = default_mat
+	var mat_btn := Button.new()
+	mat_btn.text = "Browse"
+	mat_hbox.add_child(mat_btn)
+	
+	# Pre-fill with the last used material, or the default constant if none exists yet.
+	if _last_used_material_path != "":
+		mat_line.text = _last_used_material_path
+	elif DEFAULT_MATERIAL_PATH != "":
+		mat_line.text = DEFAULT_MATERIAL_PATH
+
+	mat_btn.pressed.connect(func() -> void:
+		dialog.hide() # Hide the confirmation dialog to release the exclusive lock
+		
+		var file_dialog := EditorFileDialog.new()
+		file_dialog.file_mode = EditorFileDialog.FILE_MODE_OPEN_FILE
+		file_dialog.access = EditorFileDialog.ACCESS_RESOURCES
+		file_dialog.add_filter("*.tres, *.material", "Material")
+		
+		file_dialog.file_selected.connect(func(path: String) -> void:
+			mat_line.text = path
+			file_dialog.queue_free()
+			dialog.show() # Show the confirmation dialog again
+		)
+		file_dialog.canceled.connect(func() -> void:
+			file_dialog.queue_free()
+			dialog.show() # Show the confirmation dialog again
+		)
+		
+		EditorInterface.get_base_control().get_window().add_child(file_dialog)
+		file_dialog.popup_file_dialog()
+	)
 
 	# Mount and popup
 	var parent_window := EditorInterface.get_base_control().get_window()
@@ -116,8 +146,16 @@ func _on_generate(paths: PackedStringArray) -> void:
 		if final_folder == "":
 			final_folder = INHERITED_SCENES_ROOT
 			
-		var final_material: Material = mat_picker.edited_resource as Material
-				
+		var final_material_path := mat_line.text
+		var final_material: Material = null
+		if final_material_path != "":
+			final_material = load(final_material_path) as Material
+			if final_material == null:
+				push_error("Could not load material at: " + final_material_path)
+		
+		# Save the path for the next time the user opens the dialog.
+		_last_used_material_path = final_material_path
+		
 		dialog.queue_free()
 		_execute_generation(paths, final_material, final_folder)
 	)
