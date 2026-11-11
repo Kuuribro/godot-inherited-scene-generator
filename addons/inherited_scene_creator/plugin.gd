@@ -4,7 +4,7 @@ extends EditorPlugin
 var _context_menu: EditorContextMenuPlugin
 
 func _enter_tree() -> void:
-	var MenuScript = preload("res://addons/inherited_scene_creator/inherited_context_menu.gd")
+	var MenuScript = preload("res://addons/inherited_scene_creator/inherited_scene_context_menu.gd")
 	_context_menu = MenuScript.new()  # Key: instantiate first
 	add_context_menu_plugin(EditorContextMenuPlugin.CONTEXT_SLOT_FILESYSTEM, _context_menu)
 	

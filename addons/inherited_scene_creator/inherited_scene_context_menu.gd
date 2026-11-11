@@ -61,6 +61,27 @@ func _on_generate(paths: PackedStringArray) -> void:
 	folder_btn.text = "Browse"
 	folder_hbox.add_child(folder_btn)
 	
+	folder_btn.pressed.connect(func() -> void:
+		dialog.hide() # Hide the confirmation dialog to release the exclusive lock
+		
+		var file_dialog := EditorFileDialog.new()
+		file_dialog.file_mode = EditorFileDialog.FILE_MODE_OPEN_DIR
+		file_dialog.access = EditorFileDialog.ACCESS_RESOURCES
+		
+		file_dialog.dir_selected.connect(func(path: String) -> void:
+			folder_line.text = path
+			file_dialog.queue_free()
+			dialog.show() # Show the confirmation dialog again
+		)
+		file_dialog.canceled.connect(func() -> void:
+			file_dialog.queue_free()
+			dialog.show() # Show the confirmation dialog again
+		)
+		
+		EditorInterface.get_base_control().get_window().add_child(file_dialog)
+		file_dialog.popup_file_dialog() # Use default editor size
+	)
+	
 	# 3. Material Selector
 	var mat_hbox := HBoxContainer.new()
 	vbox.add_child(mat_hbox)
@@ -210,13 +231,17 @@ func _strip_suffix2(root: Node, glb_path: String) -> void:
 		
 ## Generates the target .tscn path. mirrors .glb's current folder structure
 func _get_target_scene_path(glb_path: String, target_root: String) -> String:
-	# strip "res://assets/" so we only have relative structure
-	var relative_path := glb_path.trim_prefix("res://assets/")
+	# Strip the res:// protocol.
+	var relative_path := glb_path.trim_prefix("res://")
 	
-	# replace .glb extension with .tscn
+	# If the file is inside an "assets/" folder, strip it so the path doesn't double up.
+	if relative_path.begins_with("assets/"):
+		relative_path = relative_path.trim_prefix("assets/")
+	
+	# Replace .glb extension with .tscn
 	var relative_tscn := relative_path.get_basename() + ".tscn"
 	
-	# append to new root folder
+	# Append to the new root folder.
 	return target_root.path_join(relative_tscn)
 
 ## Helper to show dialog to confirm is user wants to keep >10 scenes open or not.
