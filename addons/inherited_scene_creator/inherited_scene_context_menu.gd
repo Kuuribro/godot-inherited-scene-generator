@@ -12,6 +12,9 @@ const INHERITED_SCENES_ROOT := "res://assets/inherited_scenes"
 # Remembers the material the user picked last time for this session.
 static var _last_used_material_path: String = ""
 
+# Controls whether generated scenes stay open after generation.
+enum KeepOpenChoice { ABORT, NO, YES }
+
 func _popup_menu(paths: PackedStringArray) -> void:
 	add_context_menu_item("Generate Inherited Scene(s)", _on_generate)
 
@@ -157,7 +160,7 @@ func _on_generate(paths: PackedStringArray) -> void:
 		_last_used_material_path = final_material_path
 		
 		dialog.queue_free()
-		_execute_generation(paths, final_material, final_folder)
+		_execute_generation.call_deferred(paths, final_material, final_folder)
 	)
 	
 	dialog.canceled.connect(func() -> void:
@@ -176,13 +179,14 @@ func _execute_generation(paths: PackedStringArray, base_material: Material, targ
 			glb_count += 1
 
 	var keep_open := true
-	if glb_count > 10:
+	if glb_count > 1:
 		# Show a blocking dialog and wait for the user's choice
-		keep_open = await _ask_keep_scenes_open(glb_count)
+		var choice := await _ask_keep_scenes_open(glb_count)
 		# If the user closed the dialog without choosing, abort
-		if keep_open == null:
+		if choice == KeepOpenChoice.ABORT:
 			return
-			
+		keep_open = (choice == KeepOpenChoice.YES)
+	
 	# Remember which scene the editor had open before we started so we can restore it instead of leaving the editor on the last .glb
 	var original_scene := EditorInterface.get_edited_scene_root()
 	# save the path safely in case it's an unsaved new scene
@@ -282,8 +286,8 @@ func _get_target_scene_path(glb_path: String, target_root: String) -> String:
 	# Append to the new root folder.
 	return target_root.path_join(relative_tscn)
 
-## Helper to show dialog to confirm is user wants to keep >10 scenes open or not.
-func _ask_keep_scenes_open(count: int) -> Variant:
+## Helper to show dialog to confirm if user wants to keep >1 scenes open or not.
+func _ask_keep_scenes_open(count: int) -> KeepOpenChoice:
 	var dialog := ConfirmationDialog.new()
 	dialog.title = "Keep Scenes Open?"
 	dialog.dialog_text = "You are about to generate %d inherited scenes.\n\nWould you like to keep these scenes open after generation?" % count
@@ -294,28 +298,19 @@ func _ask_keep_scenes_open(count: int) -> Variant:
 	parent_window.add_child(dialog)
 
 	# Use a local variable to capture the result
-	var result: Variant = null
-	dialog.confirmed.connect(func():
-		result = true
+	var result := [KeepOpenChoice.ABORT]
+	dialog.confirmed.connect(func() -> void:
+		result[0] = KeepOpenChoice.YES
 		dialog.queue_free()
 	)
-	dialog.canceled.connect(func():
-		result = false
+	dialog.canceled.connect(func() -> void:
+		result[0] = KeepOpenChoice.NO
 		dialog.queue_free()
-	)
-	# If the user closes the dialog with the X button, treat it as an abort
-	dialog.visibility_changed.connect(func():
-		if not dialog.visible and result == null:
-			result = null # explicitly null to signal abort
 	)
 
 	dialog.popup_centered()
 
-	# Wait until the dialog is no longer visible and a result is set
-	while dialog.visible or result == null:
+	while is_instance_valid(dialog):
 		await Engine.get_main_loop().process_frame
-		# Check if the dialog was freed without a result (X button case)
-		if not is_instance_valid(dialog) and result == null:
-			return null
 
-	return result
+	return result[0]
